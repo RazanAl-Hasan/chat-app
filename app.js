@@ -1,18 +1,50 @@
 const express = require('express');
-const connectToDB = require('./config/db');
-const { extend } = require('joi');
+const http = require('http');
 const path = require('path');
-const cors = require('cors');
-const helmet = require('helmet');
-require('dotenv').config();
+const socketio = require('socket.io');
+const dotenv = require('dotenv');
+const connectToDB = require('./config/db');
+const Message = require('./models/messageModel');
 
-// الاتصال بقاعدة البيانات
+dotenv.config();
 connectToDB();
 
-// إنشاء التطبيق
 const app = express();
+const server = http.createServer(app);
+const io = socketio(server);
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`app running on PORT ${PORT}`);
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+app.use(express.static(path.join(__dirname, 'public')));
+
+
+app.get('/chat', (req, res) => {
+  res.render('chat');
+});
+
+io.on('connection', async (socket) => {
+  console.log('User connected:', socket.id);
+
+  // إرسال الرسائل السابقة
+  const messages = await Message.find().sort({ createdAt: 1 });
+  messages.forEach((msg) => {
+    socket.emit('message', { text: msg.text });
+  });
+
+  // استلام رسالة جديدة
+  socket.on('message', async (text) => {
+    const msg = new Message({ senderId: socket.id, text });
+    await msg.save();
+    io.emit('message', { text }); // بث لجميع المستخدمين
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
+
+// تشغيل الخادم
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
